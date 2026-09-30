@@ -1,3 +1,4 @@
+
 /* =============================================================
    STACK THE GUESS — starter kit
    =============================================================
@@ -41,7 +42,8 @@ const WORD_BANK = [
 /* -------------------------------------------------------------
    DOM references
 ------------------------------------------------------------- */
-
+// timer
+const timerEl = document.getElementById("timer");
 const canvasEl = document.getElementById("canvas");
 const emptyStateEl = document.getElementById("emptyState");
 const tableEl = document.querySelector(".table");
@@ -55,7 +57,9 @@ const btnNewWord = document.getElementById("btnNewWord");
 const btnHelp = document.getElementById("btnHelp");
 const btnCloseHelp = document.getElementById("btnCloseHelp");
 const helpBackdrop = document.getElementById("helpBackdrop");
-
+//sound
+const successSound = new Audio("./sounds/success.mp3");
+const errorSound = new Audio("./sounds/error.mp3");
 /* -------------------------------------------------------------
    CardStack — provided for you. Renders one card per wrong
    guess, stacked with a random tilt/offset. Click a card to
@@ -214,190 +218,228 @@ const stack = new CardStack(canvasEl);
 ------------------------------------------------------------- */
 
 async function fetchAvatarSVG(seed, style) {
-  const url = `https://api.dicebear.com/9.x/${style}/svg?seed=${encodeURIComponent(seed)}`;
+  const url = `https://api.dicebear.com/9.x/${style}/svg?seed=${encodeURIComponent(seed)}`; 
+ 
+  const response = await fetch(url); 
+ 
+  if (!response.ok) { 
+    throw new Error(`Failed to fetch avatar: ${response.status}`); 
+  } 
+ 
+  return await response.text(); 
+} 
+ 
+/* ------------------------------------------------------------- 
+   TODO (Student Task 2) 
+   ------------------------------------------------------------- 
+   Work out how much of the target word to reveal as a hint, 
+   given the player's latest wrong guess. 
+ 
+   Rules the game is supposed to follow: 
+     - The first wrong guess reveals just the first letter. 
+     - Each wrong guess after that reveals at least one more 
+       letter than was revealed before. 
+     - BUT: if the player's guess shares a longer matching prefix 
+       with the target word than what's currently revealed, jump 
+       the hint ahead to (that matching prefix + one more letter) 
+       instead of only advancing by one. 
+       Example: target is "compiler", nothing revealed yet 
+       (currentHintLength is 0). Player wrongly guesses "combat". 
+       "com" matches the target's first three letters, so the new 
+       hint length should be 4 (reveals "comp"), not 1. 
+     - The hint length can never exceed the target word's length. 
+ 
+   @param {string} guess               the player's latest wrong guess, lowercase 
+   @param {string} target              the secret word, lowercase 
+   @param {number} currentHintLength   how many letters are currently revealed 
+   @returns {number} the new hint length 
+------------------------------------------------------------- */ 
+ 
+function computeHintLength(guess, target, currentHintLength) { 
+  let matchingPrefixLength = 0; 
+ 
+  while ( 
+    matchingPrefixLength < guess.length && 
+    matchingPrefixLength < target.length && 
+    guess[matchingPrefixLength] === target[matchingPrefixLength] 
+  ) { 
+    matchingPrefixLength++; 
+  } 
+ 
+  const nextHintLength = Math.max( 
+    currentHintLength + 1, 
+    matchingPrefixLength + 1 
+  ); 
+ 
+  return Math.min(nextHintLength, target.length); 
+} 
+ 
+/* ------------------------------------------------------------- 
+   Game state + flow — provided for you 
+------------------------------------------------------------- */ 
+ 
+const state = { 
+  target: "", 
+  hintLength: 0, 
+  wrongGuesses: 0, 
+}; 
+ 
+//timer variables 
+let timerInterval = null; 
+let timeLeft = 60; 
+ 
+function pickRandom(list) { 
+  return list[Math.floor(Math.random() * list.length)]; 
+} 
+ 
+function newRound() { 
+  state.target = pickRandom(WORD_BANK); 
+  state.hintLength = 0; 
+  state.wrongGuesses = 0; 
+  stack.clear(); 
+  tableEl.classList.remove("is-won"); 
+  updateHud(); 
+  renderHint(); 
+  setFeedback("", null); 
+  guessInput.disabled = false; 
+  guessInput.value = ""; 
+  guessInput.focus(); 
 
-  const response = await fetch(url);
-
-  if (!response.ok) {
-    throw new Error(`Failed to fetch avatar: ${response.status}`);
-  }
-
-  return await response.text();
-}
-
-/* -------------------------------------------------------------
-   TODO (Student Task 2)
-   -------------------------------------------------------------
-   Work out how much of the target word to reveal as a hint,
-   given the player's latest wrong guess.
-
-   Rules the game is supposed to follow:
-     - The first wrong guess reveals just the first letter.
-     - Each wrong guess after that reveals at least one more
-       letter than was revealed before.
-     - BUT: if the player's guess shares a longer matching prefix
-       with the target word than what's currently revealed, jump
-       the hint ahead to (that matching prefix + one more letter)
-       instead of only advancing by one.
-       Example: target is "compiler", nothing revealed yet
-       (currentHintLength is 0). Player wrongly guesses "combat".
-       "com" matches the target's first three letters, so the new
-       hint length should be 4 (reveals "comp"), not 1.
-     - The hint length can never exceed the target word's length.
-
-   @param {string} guess               the player's latest wrong guess, lowercase
-   @param {string} target              the secret word, lowercase
-   @param {number} currentHintLength   how many letters are currently revealed
-   @returns {number} the new hint length
-------------------------------------------------------------- */
-
-function computeHintLength(guess, target, currentHintLength) {
-  let matchingPrefixLength = 0;
-
-  while (
-    matchingPrefixLength < guess.length &&
-    matchingPrefixLength < target.length &&
-    guess[matchingPrefixLength] === target[matchingPrefixLength]
-  ) {
-    matchingPrefixLength++;
-  }
-
-  const nextHintLength = Math.max(
-    currentHintLength + 1,
-    matchingPrefixLength + 1
-  );
-
-  return Math.min(nextHintLength, target.length);
-}
-
-/* -------------------------------------------------------------
-   Game state + flow — provided for you
-------------------------------------------------------------- */
-
-const state = {
-  target: "",
-  hintLength: 0,
-  wrongGuesses: 0,
-};
-
-function pickRandom(list) {
-  return list[Math.floor(Math.random() * list.length)];
-}
-
-function newRound() {
-  state.target = pickRandom(WORD_BANK);
-  state.hintLength = 0;
-  state.wrongGuesses = 0;
-  stack.clear();
-  tableEl.classList.remove("is-won");
-  updateHud();
-  renderHint();
-  setFeedback("", null);
-  guessInput.disabled = false;
-  guessInput.value = "";
-  guessInput.focus();
-}
-
-function updateHud() {
-  statWrongEl.textContent = String(state.wrongGuesses);
-  statCardsEl.textContent = String(stack.size);
-}
-
-function renderHint() {
-  const revealed = state.target.slice(0, state.hintLength);
-  const blanks = state.target.length - state.hintLength;
-
-  const revealedSpan = revealed
-    ? `<span class="revealed">${revealed.toUpperCase()}</span>`
-    : "";
-
-  const blankSpan = blanks > 0
-    ? `<span class="blank">${" _".repeat(blanks).trim()}</span>`
-    : "";
-
-  hintDisplayEl.innerHTML = [revealedSpan, blankSpan]
-    .filter(Boolean)
-    .join(" ");
-}
-
-function setFeedback(message, kind) {
-  feedbackEl.textContent = message;
-  feedbackEl.className = "feedback" + (kind ? ` is-${kind}` : "");
-}
-
-async function handleWrongGuess(guess) {
-  state.wrongGuesses += 1;
-
-  state.hintLength = computeHintLength(
-    guess,
-    state.target,
-    state.hintLength
-  );
-
-  updateHud();
-  renderHint();
-
-  const style = pickRandom(DICEBEAR_STYLES);
-
-  try {
-    const svgMarkup = await fetchAvatarSVG(guess, style);
-
-    stack.push(svgMarkup);
-
-    updateHud();
-    setFeedback("Not quite — a new card joins the pile.", "wrong");
-  } catch (err) {
-    console.error(err);
-
-    setFeedback(
-      "Couldn't fetch that card — check your connection and try again.",
-      "error"
-    );
-  }
-}
-
-function handleWin() {
-  tableEl.classList.add("is-won");
-
-  setFeedback(
-    `Solved it! "${state.target}" — took ${state.wrongGuesses} wrong guess(es).`,
-    "win"
-  );
-
-  guessInput.disabled = true;
-}
-
-guessForm.addEventListener("submit", (e) => {
-  e.preventDefault();
-
-  const raw = guessInput.value.trim().toLowerCase();
-
-  if (!raw) return;
-
-  guessInput.value = "";
-
-  if (raw === state.target) {
-    handleWin();
-    return;
-  }
-
-  handleWrongGuess(raw);
-});
-
-btnNewWord.addEventListener("click", newRound);
-
-btnHelp.addEventListener("click", () => {
-  helpBackdrop.hidden = false;
-});
-
-btnCloseHelp.addEventListener("click", () => {
-  helpBackdrop.hidden = true;
-});
-
-helpBackdrop.addEventListener("click", (e) => {
-  if (e.target === helpBackdrop) {
-    helpBackdrop.hidden = true;
-  }
-});
-
-newRound();
+//timer
+  startTimer();
+} 
+ 
+function updateHud() { 
+  statWrongEl.textContent = String(state.wrongGuesses); 
+  statCardsEl.textContent = String(stack.size); 
+} 
+ 
+function renderHint() { 
+  const revealed = state.target.slice(0, state.hintLength); 
+  const blanks = state.target.length - state.hintLength; 
+ 
+  const revealedSpan = revealed 
+    ? `<span class="revealed">${revealed.toUpperCase()}</span>` 
+    : ""; 
+ 
+  const blankSpan = blanks > 0 
+    ? `<span class="blank">${" _".repeat(blanks).trim()}</span>` 
+    : ""; 
+ 
+  hintDisplayEl.innerHTML = [revealedSpan, blankSpan] 
+    .filter(Boolean) 
+    .join(" "); 
+} 
+ 
+function setFeedback(message, kind) { 
+  feedbackEl.textContent = message; 
+  feedbackEl.className = "feedback" + (kind ? ` is-${kind}` : ""); 
+} 
+ 
+async function handleWrongGuess(guess) { 
+  state.wrongGuesses += 1; 
+  //handling wrong guess sound 
+  errorSound.currentTime = 0; 
+errorSound.play(); 
+ 
+  state.hintLength = computeHintLength( 
+    guess, 
+    state.target, 
+    state.hintLength 
+  ); 
+ 
+  updateHud(); 
+  renderHint(); 
+ 
+  const style = pickRandom(DICEBEAR_STYLES); 
+ 
+  try { 
+    const svgMarkup = await fetchAvatarSVG(guess, style); 
+ 
+    stack.push(svgMarkup); 
+ 
+    updateHud(); 
+    setFeedback("Not quite — a new card joins the pile.", "wrong"); 
+  } catch (err) { 
+    console.error(err); 
+ 
+    setFeedback( 
+      "Couldn't fetch that card — check your connection and try again.", 
+      "error" 
+    ); 
+  } 
+} 
+ 
+function handleWin() { 
+  // //handling correct guess sound
+  clearInterval(timerInterval); 
+  successSound.currentTime = 0; 
+ successSound.play(); 
+  tableEl.classList.add("is-won"); 
+ 
+  setFeedback( 
+    `Solved it! "${state.target}" — took ${state.wrongGuesses} wrong guess(es).`, 
+    "win" 
+  ); 
+ 
+  guessInput.disabled = true; 
+} 
+ 
+guessForm.addEventListener("submit", (e) => { 
+  e.preventDefault(); 
+ 
+  const raw = guessInput.value.trim().toLowerCase(); 
+ 
+  if (!raw) return; 
+ 
+  guessInput.value = ""; 
+ 
+  if (raw === state.target) { 
+    handleWin(); 
+    return; 
+  } 
+ 
+  handleWrongGuess(raw); 
+}); 
+ 
+btnNewWord.addEventListener("click", newRound); 
+ 
+btnHelp.addEventListener("click", () => { 
+  helpBackdrop.hidden = false; 
+}); 
+ 
+btnCloseHelp.addEventListener("click", () => { 
+  helpBackdrop.hidden = true; 
+}); 
+ 
+helpBackdrop.addEventListener("click", (e) => { 
+  if (e.target === helpBackdrop) { 
+    helpBackdrop.hidden = true; 
+  } 
+}); 
+// timer function 
+function startTimer() { 
+  clearInterval(timerInterval); 
+ 
+  timeLeft = 60; 
+  timerEl.textContent = `${timeLeft}s`; 
+ 
+  timerInterval = setInterval(() => { 
+    timeLeft -= 1; 
+ 
+    timerEl.textContent = `${timeLeft}s`; 
+ 
+    if (timeLeft <= 0) { 
+      clearInterval(timerInterval); 
+ 
+      guessInput.disabled = true; 
+ 
+      setFeedback( 
+        `Time's up! The word was "${state.target}".`, 
+        "wrong" 
+      ); 
+    } 
+  }, 1000); 
+} 
+newRound(); 
+ 

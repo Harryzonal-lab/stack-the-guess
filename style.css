@@ -1,3 +1,4 @@
+
 /* ---------------------------------------------------------
    Tokens
 --------------------------------------------------------- */
@@ -351,4 +352,13 @@ body {
     transition: none;
     animation: none;
   }
+}
+.timer {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: "Fredoka", sans-serif;
+  font-size: 1.2rem;
+  font-weight: 700;
+  white-space: nowrap;
 }
